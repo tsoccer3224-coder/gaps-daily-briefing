@@ -1,11 +1,7 @@
 name: GAPS Morning US Briefing
 
 on:
-  # 매일 한국시간 오전 7시 (UTC 22시 전날)
-  schedule:
-    - cron: '0 22 * * *'
-
-  # 수동 실행 버튼
+  # cron-job.org가 외부에서 정확한 시간(07:00 KST)에 실행
   workflow_dispatch:
 
 jobs:
