@@ -1,10 +1,42 @@
 import google.generativeai as genai
 import os
+import time
 from dotenv import load_dotenv
 from data_collector import collect_market_data
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+
+def generate_with_retry(prompt, max_retries=4):
+    """Gemini 호출 (분당 한도 초과 시 자동 재시도).
+
+    무료 등급은 분당 요청 수(RPM)가 제한돼 있어,
+    호출이 몰리면 429(ResourceExhausted)가 날 수 있다.
+    이때 잠시 기다렸다가 다시 시도한다.
+    """
+    model = genai.GenerativeModel('gemini-2.5-flash')
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            return model.generate_content(prompt).text
+        except Exception as e:
+            msg = str(e).lower()
+            is_quota = ("429" in msg or "quota" in msg or
+                        "resource" in msg or "exhausted" in msg or
+                        "rate" in msg)
+            if is_quota and attempt < max_retries:
+                # 무료 등급 분당 한도 회복 대기 (점점 길게: 40, 50, 60초)
+                wait = 30 + attempt * 10
+                print(f"[{attempt}/{max_retries}] Gemini 분당 한도 초과 → {wait}초 대기 후 재시도")
+                time.sleep(wait)
+            elif attempt < max_retries:
+                # 기타 일시 오류도 짧게 재시도
+                print(f"[{attempt}/{max_retries}] Gemini 오류, 10초 후 재시도: {e}")
+                time.sleep(10)
+            else:
+                # 마지막 시도까지 실패
+                raise
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -71,8 +103,7 @@ def generate_briefing(mode="us"):
 
     # 휴장이면 짧은 요약
     if data.get("is_holiday"):
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        return model.generate_content(_holiday_prompt(data, mode)).text
+        return generate_with_retry(_holiday_prompt(data, mode))
 
     # 회전율 점검 리마인더 (금요일 한국장만)
     turnover_note = ""
@@ -202,8 +233,7 @@ def generate_briefing(mode="us"):
 - 트리거경보 있으면 상단 TL;DR에도 언급
 """
 
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    return model.generate_content(prompt).text
+    return generate_with_retry(prompt)
 
 
 if __name__ == "__main__":
